@@ -1,1 +1,2 @@
 # QuickStyle
+In terminal run 
