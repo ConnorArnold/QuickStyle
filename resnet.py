@@ -7,7 +7,7 @@ Based on the tutorial by
 """
 
 from __future__ import print_function
-import pdb
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,6 +23,7 @@ import torchvision.models as models
 
 import time
 import copy
+import pdb
 
 def image_loader(image_name):
     image = Image.open(image_name)
@@ -45,7 +46,7 @@ def gram_matrix(input):
     # b=number of feature maps
     # (c,d)=dimensions of a f. map (N=c*d)
 
-    features = input.view(a * b, c * d)  # resise F_XL into \hat F_XL
+    features = input.view(a * b, c * d)  # resize F_XL into \hat F_XL
 
     G = torch.mm(features, features.t())  # compute the gram product
 
@@ -74,6 +75,7 @@ class StyleLoss(nn.Module):
     def __init__(self, target_feature):
         super(StyleLoss, self).__init__()
         self.target = gram_matrix(target_feature).detach()
+        self.target_feature = target_feature
 
     def forward(self, input):
         G = gram_matrix(input)
@@ -100,7 +102,6 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
                                content_layers,
                                style_layers):
     cnn = copy.deepcopy(cnn)
-
     # normalization module
     normalization = Normalization(normalization_mean, normalization_std).to(device)
 
@@ -114,6 +115,7 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
     model = nn.Sequential(normalization)
 
     i = 0  # increment every time we see a conv
+    j = 0
     for layer in cnn.children():
         if isinstance(layer, nn.Conv2d):
             i += 1
@@ -128,6 +130,13 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
             name = 'pool_{}'.format(i)
         elif isinstance(layer, nn.BatchNorm2d):
             name = 'bn_{}'.format(i)
+        elif isinstance(layer, nn.AdaptiveAvgPool2d):
+            name = 'adaptive'
+        elif isinstance(layer, nn.Linear):
+            name = 'linear'
+        elif isinstance(layer, nn.Sequential):
+            j += 1
+            name = 'seq_{}'.format(j)
         else:
             raise RuntimeError('Unrecognized layer: {}'.format(layer.__class__.__name__))
 
@@ -141,6 +150,7 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
             content_losses.append(content_loss)
 
         if name in style_layers:
+            print(name)
             # add style loss:
             target_feature = model(style_img).detach()
             style_loss = StyleLoss(target_feature)
@@ -168,7 +178,8 @@ def run_style_transfer(cnn, normalization_mean, normalization_std,
     print('Building the style transfer model..')
     model, style_losses, content_losses = get_style_model_and_losses(cnn,
                                                                      normalization_mean, normalization_std, style_img,
-                                                                     content_img, content_layers_default, style_layers_default)
+                                                                     content_img, content_layers_default,
+                                                                     style_layers_default)
     optimizer = get_input_optimizer(input_img)
 
     print('Optimizing..')
@@ -229,7 +240,7 @@ if __name__ == "__main__":
     unloader = transforms.ToPILImage()  # reconvert into PIL image
     plt.ion()
 
-    cnn = models.vgg19(pretrained=True).features.to(device).eval()
+    cnn = models.resnet18(pretrained=True)
 
 
     ######################################################################
@@ -241,17 +252,14 @@ if __name__ == "__main__":
     cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
     cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
 
-    # VGG Defaults
-    content_layers_default = ['conv_4']
-    style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
+    content_layers_default = ['conv_1']
+    style_layers_default = ['seq_1', 'seq_2']
 
     input_img = content_img.clone()
     # if you want to use white noise instead uncomment the below line:
     # input_img = torch.randn(content_img.data.size(), device=device)
 
     # add the original input image to the figure:
-    plt.figure()
-    imshow(input_img, title='Input Image')
     start_time = time.time()
     output = run_style_transfer(cnn, cnn_normalization_mean, cnn_normalization_std,
                                 content_img, style_img, input_img, 300, 1000000, 1, content_layers_default,
