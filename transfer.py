@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 
 import torchvision.transforms as transforms
 import torchvision.models as models
+import datetime
 
 import time
 import copy
@@ -39,6 +40,15 @@ def imshow(tensor, title=None):
     if title is not None:
         plt.title(title)
     plt.pause(0.001)  # pause a bit so that plots are updated
+
+def save(image, content, style, model):
+    ts = time.time()
+    filename = model + "_" + content + "_" + style + "_" + \
+               datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d_%H_%M_%S')+".jpg"
+    image = image.cpu().clone()  # we clone the tensor to not do changes on it
+    image = image.squeeze(0)  # remove the fake batch dimension
+    image = unloader(image)
+    image.save(filename)
 
 def gram_matrix(input):
     a, b, c, d = input.size()  # a=batch size(=1)
@@ -127,6 +137,10 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
             name = 'pool_{}'.format(i)
         elif isinstance(layer, nn.BatchNorm2d):
             name = 'bn_{}'.format(i)
+        elif isinstance(layer, nn.AdaptiveAvgPool2d):
+            name = 'adaptive'
+        elif isinstance(layer, nn.Linear):
+            name = 'linear'
         elif isinstance(layer, nn.Sequential):
             for block in layer.children():
                 for sublayer in block.children():
@@ -225,11 +239,13 @@ if __name__ == "__main__":
     # Set the run variables
     model = "vgg_19"
     transfer_type = "static"
-    style_img = image_loader("./udnie.jpg")
-    content_img = image_loader("./building.jpg")
-    steps = 300
-    style_weight = 1000000
-    content_weight = 1
+    style_name = "picasso"
+    content_name = "building"
+    content_folder = "./jump/"
+    steps = 300  # Default 300
+    style_weight = 1000000  # Default 1000000
+    content_weight = 1  # Default 1
+    save_output = False
 
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -239,6 +255,9 @@ if __name__ == "__main__":
         transforms.Resize(imsize),  # scale imported image
         transforms.ToTensor()])  # transform it into a torch tensor
 
+    style_img = image_loader("./" + style_name + ".jpg")
+    content_img = image_loader("./" + content_name + ".jpg")
+
     assert style_img.size() == content_img.size(), \
         "we need to import style and content images of the same size"
 
@@ -247,17 +266,28 @@ if __name__ == "__main__":
 
     if model == "vgg_19":
         cnn = models.vgg19(pretrained=True).features.to(device).eval()
-        content_layers_default = ['conv_4']
-        style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
+        content_layers_default = [4] # Default 4
+        style_layers_default = [1,2,3,4,5] # Default 1,2,3,4,5
     elif model == "vgg_16":
         cnn = models.vgg16(pretrained=True).features.to(device).eval()
-        content_layers_default = ['conv_4']
-        style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
-    elif model == "resnet18":
+        content_layers_default = [4] # Default 4
+        style_layers_default = [1,2,3,4,5] # Default 1,2,3,4,5
+    elif model == "resnet_18":
         cnn = models.resnet18(pretrained=True)
-        content_layers_default = ['conv_1']
+        content_layers_default = [4,5,6,7,8] # Default 4,5,6,7,8
         # Need 6, 10, 14
-        style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4']
+        style_layers_default = [1,2,3,4,5,6,7] # Default 1,2,3,4,5,6,7
+
+    counter = 0
+    for layer in content_layers_default:
+        content_layers_default[counter] = "conv_" + str(layer)
+        counter += 1
+    counter = 0
+    for layer in style_layers_default:
+        style_layers_default[counter] = "conv_" + str(layer)
+        counter += 1
+    print(content_layers_default)
+    print(style_layers_default)
 
     ######################################################################
     # Additionally, VGG networks are trained on images with each channel
@@ -268,10 +298,13 @@ if __name__ == "__main__":
     cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
     cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
 
+    plt.figure()
+    imshow(content_img, title='Content Image')
+    plt.figure()
+    imshow(style_img, title='Style Image')
 
-    input_img = content_img.clone()
-    # if you want to use white noise instead uncomment the below line:
-    # input_img = torch.randn(content_img.data.size(), device=device)
+    # input_img = content_img.clone()
+    input_img = torch.randn(content_img.data.size(), device=device)
 
     # add the original input image to the figure:
     start_time = time.time()
@@ -282,6 +315,8 @@ if __name__ == "__main__":
     elapsed_time = time.time() - start_time
     print("ELAPSED TIME")
     print(elapsed_time)
+    if save_output:
+        save(output, content_name, style_name, model)
     plt.figure()
     imshow(output, title='Output Image')
 
