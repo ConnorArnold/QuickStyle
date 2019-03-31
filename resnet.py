@@ -79,8 +79,8 @@ class StyleLoss(nn.Module):
 
     def forward(self, input):
         G = gram_matrix(input)
-        pdb.set_trace()
-        self.loss = F.mse_loss(G, self.target)
+        # pdb.set_trace()
+        self.loss = F.mse_loss(G, self.target, reduction='mean')
         return input
 
 
@@ -135,13 +135,20 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
         elif isinstance(layer, nn.Linear):
             name = 'linear'
         elif isinstance(layer, nn.Sequential):
-            j += 1
-            name = 'seq_{}'.format(j)
+            for block in layer.children():
+                for sublayer in block.children():
+                    if isinstance(sublayer, nn.Conv2d):
+                        params = sublayer.extra_repr().split(', ')
+                        if params[0] == params[1]:
+                            i += 1
+                            name = 'conv_{}'.format(i)
+                            model.add_module(name, sublayer)
+                            print(name)
+
         else:
             raise RuntimeError('Unrecognized layer: {}'.format(layer.__class__.__name__))
 
         model.add_module(name, layer)
-
         if name in content_layers:
             # add content loss:
             target = model(content_img).detach()
@@ -150,12 +157,12 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
             content_losses.append(content_loss)
 
         if name in style_layers:
-            print(name)
-            # add style loss:
             target_feature = model(style_img).detach()
             style_loss = StyleLoss(target_feature)
             model.add_module("style_loss_{}".format(i), style_loss)
             style_losses.append(style_loss)
+
+
 
     # now we trim off the layers after the last content and style losses
     for i in range(len(model) - 1, -1, -1):
@@ -253,7 +260,7 @@ if __name__ == "__main__":
     cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
 
     content_layers_default = ['conv_1']
-    style_layers_default = ['seq_1', 'seq_2']
+    style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5', 'conv_6']
 
     input_img = content_img.clone()
     # if you want to use white noise instead uncomment the below line:
