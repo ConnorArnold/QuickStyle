@@ -77,7 +77,6 @@ class StyleLoss(nn.Module):
 
     def forward(self, input):
         G = gram_matrix(input)
-        pdb.set_trace()
         self.loss = F.mse_loss(G, self.target)
         return input
 
@@ -128,10 +127,20 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
             name = 'pool_{}'.format(i)
         elif isinstance(layer, nn.BatchNorm2d):
             name = 'bn_{}'.format(i)
+        elif isinstance(layer, nn.Sequential):
+            for block in layer.children():
+                for sublayer in block.children():
+                    if isinstance(sublayer, nn.Conv2d):
+                        params = sublayer.extra_repr().split(', ')
+                        i += 1
+                        name = 'conv_{}'.format(i)
+                        model.add_module(name, sublayer)
         else:
             raise RuntimeError('Unrecognized layer: {}'.format(layer.__class__.__name__))
 
         model.add_module(name, layer)
+        if torch.cuda.is_available():
+            model.cuda()
 
         if name in content_layers:
             # add content loss:
@@ -213,6 +222,16 @@ def run_style_transfer(cnn, normalization_mean, normalization_std,
 
 
 if __name__ == "__main__":
+    # Set the run variables
+    model = "vgg_19"
+    transfer_type = "static"
+    style_img = image_loader("./udnie.jpg")
+    content_img = image_loader("./building.jpg")
+    steps = 300
+    style_weight = 1000000
+    content_weight = 1
+
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     imsize = 512 if torch.cuda.is_available() else 128  # use small size if no gpu
 
@@ -220,17 +239,25 @@ if __name__ == "__main__":
         transforms.Resize(imsize),  # scale imported image
         transforms.ToTensor()])  # transform it into a torch tensor
 
-    style_img = image_loader("./picasso.jpg")
-    content_img = image_loader("./dancing.jpg")
-
     assert style_img.size() == content_img.size(), \
         "we need to import style and content images of the same size"
 
     unloader = transforms.ToPILImage()  # reconvert into PIL image
     plt.ion()
 
-    cnn = models.vgg19(pretrained=True).features.to(device).eval()
-
+    if model == "vgg_19":
+        cnn = models.vgg19(pretrained=True).features.to(device).eval()
+        content_layers_default = ['conv_4']
+        style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
+    elif model == "vgg_16":
+        cnn = models.vgg16(pretrained=True).features.to(device).eval()
+        content_layers_default = ['conv_4']
+        style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
+    elif model == "resnet18":
+        cnn = models.resnet18(pretrained=True)
+        content_layers_default = ['conv_1']
+        # Need 6, 10, 14
+        style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4']
 
     ######################################################################
     # Additionally, VGG networks are trained on images with each channel
@@ -241,21 +268,16 @@ if __name__ == "__main__":
     cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
     cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
 
-    # VGG Defaults
-    content_layers_default = ['conv_4']
-    style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
 
     input_img = content_img.clone()
     # if you want to use white noise instead uncomment the below line:
     # input_img = torch.randn(content_img.data.size(), device=device)
 
     # add the original input image to the figure:
-    plt.figure()
-    imshow(input_img, title='Input Image')
     start_time = time.time()
     output = run_style_transfer(cnn, cnn_normalization_mean, cnn_normalization_std,
-                                content_img, style_img, input_img, 300, 1000000, 1, content_layers_default,
-                                style_layers_default)
+                                content_img, style_img, input_img, steps, style_weight, content_weight,
+                                content_layers_default, style_layers_default)
 
     elapsed_time = time.time() - start_time
     print("ELAPSED TIME")

@@ -139,16 +139,17 @@ def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
                 for sublayer in block.children():
                     if isinstance(sublayer, nn.Conv2d):
                         params = sublayer.extra_repr().split(', ')
-                        if params[0] == params[1]:
-                            i += 1
-                            name = 'conv_{}'.format(i)
-                            model.add_module(name, sublayer)
-                            print(name)
+                        i += 1
+                        name = 'conv_{}'.format(i)
+                        model.add_module(name, sublayer)
+                        print(name)
+                        print(sublayer)
 
         else:
             raise RuntimeError('Unrecognized layer: {}'.format(layer.__class__.__name__))
-
         model.add_module(name, layer)
+        if torch.cuda.is_available():
+            model.cuda()
         if name in content_layers:
             # add content loss:
             target = model(content_img).detach()
@@ -238,7 +239,7 @@ if __name__ == "__main__":
         transforms.Resize(imsize),  # scale imported image
         transforms.ToTensor()])  # transform it into a torch tensor
 
-    style_img = image_loader("./picasso.jpg")
+    style_img = image_loader("./starry.jpg")
     content_img = image_loader("./dancing.jpg")
 
     assert style_img.size() == content_img.size(), \
@@ -260,7 +261,8 @@ if __name__ == "__main__":
     cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
 
     content_layers_default = ['conv_1']
-    style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5', 'conv_6']
+    # Need 6, 10, 14
+    style_layers_default = ['conv_1', 'conv_2','conv_3','conv_4']
 
     input_img = content_img.clone()
     # if you want to use white noise instead uncomment the below line:
@@ -268,8 +270,9 @@ if __name__ == "__main__":
 
     # add the original input image to the figure:
     start_time = time.time()
+    style_weight = 1000000
     output = run_style_transfer(cnn, cnn_normalization_mean, cnn_normalization_std,
-                                content_img, style_img, input_img, 300, 1000000, 1, content_layers_default,
+                                content_img, style_img, input_img, 300, style_weight, 1, content_layers_default,
                                 style_layers_default)
 
     elapsed_time = time.time() - start_time
