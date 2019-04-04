@@ -22,8 +22,10 @@ import torchvision.transforms as transforms
 import torchvision.models as models
 import datetime
 
+import zipfile
 import time
 import copy
+import os
 
 def image_loader(image_name):
     image = Image.open(image_name)
@@ -41,14 +43,38 @@ def imshow(tensor, title=None):
         plt.title(title)
     plt.pause(0.001)  # pause a bit so that plots are updated
 
-def save(image, content, style, model):
+# def save(image, content, style, model):
+#     ts = time.time()
+#     filename = "output/" + model + "_" + content + "_" + style + "_" + \
+#                datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d_%H_%M_%S')+".jpg"
+#     image = image.cpu().clone()  # we clone the tensor to not do changes on it
+#     image = image.squeeze(0)  # remove the fake batch dimension
+#     image = unloader(image)
+#     image.save(filename)
+
+def save(image, folder, number):
     ts = time.time()
-    filename = model + "_" + content + "_" + style + "_" + \
-               datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d_%H_%M_%S')+".jpg"
+    filename = folder + "/" + str(number) +".jpg"
     image = image.cpu().clone()  # we clone the tensor to not do changes on it
     image = image.squeeze(0)  # remove the fake batch dimension
     image = unloader(image)
     image.save(filename)
+
+def gifify(folder):
+    with imageio.get_writer(folder + '.gif', mode='I') as writer:
+        for filename in os.listdir(folder):
+            print(filename)
+            if '.jpg' in filename:
+                image = imageio.imread(folder + '/'+ filename)
+                writer.append_data(image)
+
+def zipdir(folder):
+    # ziph is zipfile handle
+    zipf = zipfile.ZipFile(folder + '/' + '.zip', 'w', zipfile.ZIP_DEFLATED)
+    for root, dirs, files in os.walk(folder):
+        for file in files:
+            zipf.write(os.path.join(root, file))
+    zipf.close()
 
 def gram_matrix(input):
     a, b, c, d = input.size()  # a=batch size(=1)
@@ -186,12 +212,13 @@ def get_input_optimizer(input_img):
 
 def run_style_transfer(cnn, normalization_mean, normalization_std,
                        content_img, style_img, input_img, num_steps,
-                       style_weight, content_weight,content_layers_default, style_layers_default):
+                       style_weight, content_weight,content_layers_default, style_layers_default,folder):
     """Run the style transfer."""
     print('Building the style transfer model..')
     model, style_losses, content_losses = get_style_model_and_losses(cnn,
                                                                      normalization_mean, normalization_std, style_img,
-                                                                     content_img, content_layers_default, style_layers_default)
+                                                                     content_img, content_layers_default,
+                                                                     style_layers_default)
     optimizer = get_input_optimizer(input_img)
 
     print('Optimizing..')
@@ -201,7 +228,7 @@ def run_style_transfer(cnn, normalization_mean, normalization_std,
         def closure():
             # correct the values of updated input image
             input_img.data.clamp_(0, 1)
-
+            save(input_img, folder, run[0])
             optimizer.zero_grad()
             model(input_img)
             style_score = 0
@@ -231,11 +258,15 @@ def run_style_transfer(cnn, normalization_mean, normalization_std,
 
     # a last correction...
     input_img.data.clamp_(0, 1)
+    zipdir(folder)
 
     return input_img
 
 
 if __name__ == "__main__":
+    output_folder = "lowStyle2"
+    if not os.path.exists(output_folder):
+      os.makedirs(output_folder)
     # Set the run variables
     model = "vgg_19"
     transfer_type = "static"
@@ -243,7 +274,7 @@ if __name__ == "__main__":
     content_name = "building"
     content_folder = "./jump/"
     steps = 300  # Default 300
-    style_weight = 1000000  # Default 1000000
+    style_weight = 700000  # Default 1000000
     content_weight = 1  # Default 1
     save_output = False
 
@@ -289,12 +320,6 @@ if __name__ == "__main__":
     print(content_layers_default)
     print(style_layers_default)
 
-    ######################################################################
-    # Additionally, VGG networks are trained on images with each channel
-    # normalized by mean=[0.485, 0.456, 0.406] and std=[0.229, 0.224, 0.225].
-    # We will use them to normalize the image before sending it into the network.
-    #
-
     cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
     cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
 
@@ -303,14 +328,14 @@ if __name__ == "__main__":
     plt.figure()
     imshow(style_img, title='Style Image')
 
-    # input_img = content_img.clone()
+#     input_img = content_img.clone()
     input_img = torch.randn(content_img.data.size(), device=device)
 
     # add the original input image to the figure:
     start_time = time.time()
     output = run_style_transfer(cnn, cnn_normalization_mean, cnn_normalization_std,
                                 content_img, style_img, input_img, steps, style_weight, content_weight,
-                                content_layers_default, style_layers_default)
+                                content_layers_default, style_layers_default,output_folder)
 
     elapsed_time = time.time() - start_time
     print("ELAPSED TIME")
@@ -319,6 +344,7 @@ if __name__ == "__main__":
         save(output, content_name, style_name, model)
     plt.figure()
     imshow(output, title='Output Image')
+
 
     # sphinx_gallery_thumbnail_number = 4
     plt.ioff()
