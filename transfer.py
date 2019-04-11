@@ -27,6 +27,10 @@ import time
 import copy
 import os
 
+def show(image,title=None):
+    plt.figure()
+    imshow(image, title=title)
+
 def image_loader(image_name):
     image = Image.open(image_name)
     # fake batch dimension required to fit network's input dimensions
@@ -212,7 +216,8 @@ def get_input_optimizer(input_img):
 
 def run_style_transfer(cnn, normalization_mean, normalization_std,
                        content_img, style_img, input_img, num_steps,
-                       style_weight, content_weight,content_layers_default, style_layers_default,folder):
+                       style_weight, content_weight,content_layers_default, style_layers_default,
+                       folder, previous_image=None):
     """Run the style transfer."""
     print('Building the style transfer model..')
     model, style_losses, content_losses = get_style_model_and_losses(cnn,
@@ -220,7 +225,7 @@ def run_style_transfer(cnn, normalization_mean, normalization_std,
                                                                      content_img, content_layers_default,
                                                                      style_layers_default)
     optimizer = get_input_optimizer(input_img)
-
+    show(input_img,'input')
     print('Optimizing..')
     run = [0]
     while run[0] <= num_steps:
@@ -228,7 +233,6 @@ def run_style_transfer(cnn, normalization_mean, normalization_std,
         def closure():
             # correct the values of updated input image
             input_img.data.clamp_(0, 1)
-            save(input_img, folder, run[0])
             optimizer.zero_grad()
             model(input_img)
             style_score = 0
@@ -258,13 +262,11 @@ def run_style_transfer(cnn, normalization_mean, normalization_std,
 
     # a last correction...
     input_img.data.clamp_(0, 1)
-    zipdir(folder)
 
     return input_img
 
-
 if __name__ == "__main__":
-    output_folder = "lowStyle2"
+    output_folder = "jump_style"
     if not os.path.exists(output_folder):
       os.makedirs(output_folder)
     # Set the run variables
@@ -278,7 +280,6 @@ if __name__ == "__main__":
     content_weight = 1  # Default 1
     save_output = False
 
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     imsize = 512 if torch.cuda.is_available() else 128  # use small size if no gpu
 
@@ -287,11 +288,6 @@ if __name__ == "__main__":
         transforms.ToTensor()])  # transform it into a torch tensor
 
     style_img = image_loader("./" + style_name + ".jpg")
-    content_img = image_loader("./" + content_name + ".jpg")
-
-    assert style_img.size() == content_img.size(), \
-        "we need to import style and content images of the same size"
-
     unloader = transforms.ToPILImage()  # reconvert into PIL image
     plt.ion()
 
@@ -317,33 +313,65 @@ if __name__ == "__main__":
     for layer in style_layers_default:
         style_layers_default[counter] = "conv_" + str(layer)
         counter += 1
-    print(content_layers_default)
-    print(style_layers_default)
 
     cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
     cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
 
-    plt.figure()
-    imshow(content_img, title='Content Image')
-    plt.figure()
-    imshow(style_img, title='Style Image')
-
-#     input_img = content_img.clone()
-    input_img = torch.randn(content_img.data.size(), device=device)
-
     # add the original input image to the figure:
     start_time = time.time()
-    output = run_style_transfer(cnn, cnn_normalization_mean, cnn_normalization_std,
+    image_number = 0
+
+    if transfer_type == "static":
+        content_img = image_loader("./" + content_name + ".jpg")
+
+        assert style_img.size() == content_img.size(), \
+            "we need to import style and content images of the same size"
+
+        show(content_img, 'Content Image')
+        show(style_img, 'Style Image')
+
+        #     input_img = content_img.clone()
+        input_img = torch.randn(content_img.data.size(), device=device)
+
+        output = run_style_transfer(cnn, cnn_normalization_mean, cnn_normalization_std,
                                 content_img, style_img, input_img, steps, style_weight, content_weight,
-                                content_layers_default, style_layers_default,output_folder)
+                                content_layers_default, style_layers_default, output_folder)
+
+        if save_output:
+            save(output, content_name, style_name, model)
+        show(output, 'Output Image')
+
+    elif transfer_type == "video":
+        fold = sorted(os.listdir(content_folder))
+        for file in fold:
+            image_number = image_number + 1
+            content_image = image_loader(content_folder + file)
+            if image_number == 1:
+                input_image = content_image.clone()
+                previous_image = content_image.clone()
+                # input_img = torch.randn(content_img.data.size(), device=device)
+                output_image = run_style_transfer(cnn, cnn_normalization_mean, cnn_normalization_std,
+                                            content_image, style_img, input_image, steps, style_weight, content_weight,
+                                            content_layers_default, style_layers_default, output_folder)
+                if save_output:
+                    save(output_image,output_folder,image_number)
+            else:
+                input_image = output_image
+                output_image = run_style_transfer(cnn, cnn_normalization_mean, cnn_normalization_std,
+                                                  content_image, style_img, input_image, steps, style_weight,
+                                                  content_weight, content_layers_default, style_layers_default,
+                                                  output_folder, previous_image=previous_image)
+                previous_image = content_image.clone()
+                if save_output:
+                    save(output_image, output_folder, image_number)
+
 
     elapsed_time = time.time() - start_time
     print("ELAPSED TIME")
     print(elapsed_time)
+
     if save_output:
-        save(output, content_name, style_name, model)
-    plt.figure()
-    imshow(output, title='Output Image')
+        zipdir(output_folder)
 
 
     # sphinx_gallery_thumbnail_number = 4
