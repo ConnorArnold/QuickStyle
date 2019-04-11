@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import scipy.ndimage.map_coordinates
 
 from PIL import Image
 import matplotlib
@@ -21,6 +20,10 @@ import copy
 import os
 import cv2
 import numpy as np
+
+def show(image,title=None):
+    plt.figure()
+    imshow(image, title=title)
 
 
 if __name__ == "__main__":
@@ -41,13 +44,21 @@ if __name__ == "__main__":
     # p0 = cv2.goodFeaturesToTrack(first_gray, mask=None, **feature_params)
     # p1, st, err = cv2.calcOpticalFlowPyrLK(first_gray, second_gray, p0, None, **lk_params)
     flow = cv2.calcOpticalFlowFarneback(first_gray,second_gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-    picture = torch.from_numpy(first_image).float()/255
-    optical_flow = torch.from_numpy(flow)
+    mag, ang = cv2.cartToPolar(flow[...,0], flow[...,1])
     pdb.set_trace()
-    F.grid_sample(picture, optical_flow)
+    magnitude = cv2.normalize(mag,None,0,255,cv2.NORM_MINMAX)
+    threshed = cv2.threshold(magnitude,127,255,cv2.THRESH_BINARY)
+    show(threshed)
+    cv2.imshow('frame2', bgr)
+    k = cv2.waitKey(30) & 0xff
     pdb.set_trace()
-    good_new = p1[st==1]
-    good_old = p0[st==1]
+    hsv = np.zeros_like(second_image)
+    hsv[...,0] = ang*180/np.pi/2
+    hsv[...,2] = cv2.normalize(mag,None,0,255,cv2.NORM_MINMAX)
+    bgr = cv2.cvtColor(hsv,cv2.COLOR_HSV2BGR)
+    cv2.imshow('frame2', bgr)
+    k = cv2.waitKey(30) & 0xff
+    pdb.set_trace()
     # for i,(new,old) in enumerate(zip(good_new,good_old)):
     #     a,b = new.ravel()
     #     c,d = old.ravel()
